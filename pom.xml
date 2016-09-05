@@ -1,0 +1,218 @@
+<?xml version="1.0"?>
+<project
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd"
+	xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+	<modelVersion>4.0.0</modelVersion>
+	<groupId>javax.magnolia</groupId>
+	<artifactId>magnolia-docker</artifactId>
+	<name>Magnolia webapp Docker container</name>
+	<version>0.0.1</version>
+	
+	<!--		
+		You need to have installed Maven 3.x or higher (Maven 3.2.2 has a bug to resolve dependencies properly).
+		
+		You need to have the Docker toolbox installed:
+		https://www.docker.com/products/docker-toolbox
+		
+		Make sure you set up the environment for the Docker client by executing:
+		$ docker-machine env 
+		and follow the instructions on the command line.
+		
+		Build the Docker ZEG webapp container from the parent directory:
+		$ mvn clean pre-integration-test
+		
+		Parameters to push the Docker image up to the Docker hub (optional):
+		-DpushDockerHub -Ddocker.hub.user.name=<YOUR DOCKER HUB USERNAME> -Ddocker.hub.user.password=<YOUR DOCKER HUB PASSWORD>
+		
+		Parameters to set an additional tag (e.g. "staging" to trigger an deployment once the image is pushed) on the Docker image (optional)
+		-DtagDockerImage -Ddocker.container.tag.additional=<ADDITIONAL TAG NAME>
+		
+		Parameter to push the additional tag up to Docker hub (optional):
+		-DpushAdditionalTagDockerHub
+	-->
+	
+	<properties>
+		<!-- adjust the path to point to the directory containing your Magnolia webapp bundle -->
+		<distribution.file.srcDir>../magnolia-postgres-bundle/target</distribution.file.srcDir>
+		<!-- replace the .war file name with the actual file name of your Magnolia webapp bundle -->
+		<distribution.file.name>magnolia-postgres-bundle-0.0.1-SNAPSHOT.war</distribution.file.name>
+		<!-- replace 'some/repo' with the actual naqme of your Docker repository -->
+		<docker.hub.repository>some/repo</docker.hub.repository>
+		<docker.container.tag>${project.version}</docker.container.tag>
+	</properties>
+	
+	<build>
+		<plugins>
+			<plugin>
+				<!-- disable building a JAR for this Maven module -->
+				<artifactId>maven-jar-plugin</artifactId>
+				<version>2.6</version>
+				<executions>
+					<execution>
+						<id>default-jar</id>
+						<phase>never</phase>
+						<configuration>
+							<finalName>unwanted</finalName>
+							<classifier>unwanted</classifier>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+		</plugins>
+	</build>	
+
+	<profiles>
+		<profile>
+			<id>docker</id>
+			<activation>
+				<file>
+					<exists>${distribution.file.srcDir}/${distribution.file.name}</exists>
+				</file>
+			</activation>
+			<build>
+				<plugins>
+					<plugin>
+						<!-- copy Dockerfile, distribution file (WAR) and misc. resources to the target/ directory -->
+						<artifactId>maven-resources-plugin</artifactId>
+						<executions>
+							<execution>
+								<id>copy-resources</id>
+								<phase>validate</phase>
+								<goals>
+									<goal>copy-resources</goal>
+								</goals>
+								<configuration>
+									<outputDirectory>${basedir}/target</outputDirectory>
+									<resources>
+										<resource>
+											<directory>src/main/docker</directory>
+											<filtering>true</filtering>
+										</resource>		
+										<resource>
+											<directory>${distribution.file.srcDir}</directory>
+											<includes>	
+												<include>${distribution.file.name}</include>
+											</includes>
+										</resource>																			
+									</resources>
+								</configuration>
+							</execution>
+						</executions>
+					</plugin>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-antrun-plugin</artifactId>
+						<version>1.6</version>
+						<executions>	
+							<execution>
+								<!-- remove dangling (<none>:<none>) Docker images -->
+								<id>removeDanglingDockerContainer</id>
+								<phase>clean</phase>
+								<goals>
+									<goal>run</goal>
+								</goals>								
+								<configuration>
+									<target>
+										<exec executable="/bin/bash" osfamily="unix">
+											<arg value="-c" />
+											<arg value="docker images -q --no-trunc --filter dangling=true | xargs --no-run-if-empty docker rmi" />
+										</exec>									
+										<exec executable="cmd" osfamily="windows">
+											<arg line="/c docker images -q --no-trunc --filter dangling=true | xargs --no-run-if-empty docker rmi" />
+										</exec>
+									</target>
+								</configuration>
+							</execution>											
+							<execution>
+								<!-- build a Docker container -->
+								<id>buildDockerContainer</id>
+								<phase>pre-integration-test</phase>
+								<goals>
+									<goal>run</goal>
+								</goals>								
+								<configuration>
+									<target>
+										<exec executable="docker" failonerror="true">
+											<arg value="build" />
+											<arg value="--no-cache" />
+											<arg value="-t" />
+											<arg value="${docker.hub.repository}:${docker.container.tag}" />
+											<arg value="target" />
+										</exec>
+									</target>
+								</configuration>
+							</execution>
+							<execution>
+								<!-- set an additional tag for the Docker ikmage (optional) -->
+								<id>tagDockerImage</id>
+								<phase>pre-integration-test</phase>
+								<goals>
+									<goal>run</goal>
+								</goals>								
+								<configuration>
+									<target if="tagDockerImage">
+										<exec executable="docker" failonerror="true">
+											<arg value="tag" />
+											<arg value="${docker.hub.repository}:${docker.container.tag}" />
+											<arg value="${docker.hub.repository}:${docker.container.tag.additional}" />
+										</exec>
+									</target>
+								</configuration>
+							</execution>
+							<execution>
+								<!-- log into Docker hub (optional) -->							
+								<id>loginDockerHub</id>
+								<phase>pre-integration-test</phase>
+								<goals>
+									<goal>run</goal>
+								</goals>								
+								<configuration>
+									<target if="pushDockerHub">
+										<exec executable="docker" failonerror="true">
+											<arg value="login" />
+											<arg value="-u=${docker.hub.user.name}" />
+											<arg value="-p=${docker.hub.user.password}" />
+										</exec>									
+									</target>
+								</configuration>
+							</execution>	
+							<execution>
+								<!-- push container image to Docker hub (optional) -->							
+								<id>pushDockerHub</id>
+								<phase>pre-integration-test</phase>
+								<goals>
+									<goal>run</goal>
+								</goals>								
+								<configuration>
+									<target if="pushDockerHub">
+										<exec executable="docker" failonerror="true">
+											<arg value="push" />
+											<arg value="${docker.hub.repository}:${docker.container.tag}" />
+										</exec>									
+									</target>
+								</configuration>
+							</execution>		
+							<execution>
+								<!-- push container image with additional tag to Docker hub (optional) -->							
+								<id>pushAdditionalTagDockerHub</id>
+								<phase>pre-integration-test</phase>
+								<goals>
+									<goal>run</goal>
+								</goals>								
+								<configuration>
+									<target if="pushAdditionalTagDockerHub">
+										<exec executable="docker" failonerror="true">
+											<arg value="push" />
+											<arg value="${docker.hub.repository}:${docker.container.tag.additional}" />
+										</exec>									
+									</target>
+								</configuration>
+							</execution>																		
+						</executions>
+					</plugin>									
+				</plugins>
+			</build>
+		</profile>	
+	</profiles>
+		
+</project>

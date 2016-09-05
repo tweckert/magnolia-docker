@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="docker.tasks" basedir="." default="push.docker.hub">
+
+	<description>
+	Pulls an existing image from the Docker hub, adds another tag to the image, and pushes the image back into Docker hub.
+	Call this Ant script from the parent target in one line:
+	ant -Ddocker.hub.user.name=YOUR_DOCKER_HUB_USERNAME -Ddocker.hub.user.password=YOUR_DOCKER_HUB_PASSWORD \
+		-Ddocker.container.tag=EXISTING_TAG -Ddocker.container.tag.additional=ADDITIONAL_TAG	
+	</description>
+
+	<property environment="env" />
+	<!-- replace 'some/repo' with the actual name of your Docker repository -->
+	<property name="docker.hub.repository" value="some/repo" />
+	
+	
+	<target name="remove.dangling.images" description="Remove dangling Docker images">
+		<echo>Remove dangling (&lt;none&gt;:&lt;none&gt;) Docker images</echo>
+		<exec executable="/bin/bash" osfamily="unix">
+			<arg value="-c" />
+			<arg value="docker images -q --no-trunc --filter dangling=true | xargs --no-run-if-empty docker rmi" />
+		</exec>									
+		<exec executable="cmd" osfamily="windows">
+			<arg line="/c docker images -q --no-trunc --filter dangling=true | xargs --no-run-if-empty docker rmi" />
+		</exec>	
+	</target>
+
+	<target name="login.docker.hub" depends="remove.dangling.images" description="Log into the Docker registry">
+		<echo>Log into the Docker registry with user '${docker.hub.user.name}'</echo>
+		<exec executable="docker" failonerror="true">
+			<arg value="login" />
+			<arg value="-u=${docker.hub.user.name}" />
+			<arg value="-p=${docker.hub.user.password}" />
+		</exec>	
+	</target>
+
+	<target name="pull.docker.hub" depends="login.docker.hub" description="Pull the image from the Docker hub">
+		<echo>Pull the image '${docker.hub.repository}:${docker.container.tag}' from the Docker hub</echo>
+		<exec executable="docker" failonerror="true">
+			<arg value="pull" />
+			<arg value="${docker.hub.repository}:${docker.container.tag}" />
+		</exec>		
+	</target>
+
+	<target name="set.docker.tag.additional" depends="pull.docker.hub" description="Tag the image with an additional tag">
+		<echo>Tag the image '${docker.hub.repository}:${docker.container.tag}' with an additional tag '${docker.hub.repository}:${docker.container.tag.additional}'</echo>
+		<exec executable="docker" failonerror="true">
+			<arg value="tag" />
+			<arg value="${docker.hub.repository}:${docker.container.tag}" />
+			<arg value="${docker.hub.repository}:${docker.container.tag.additional}" />
+		</exec>	
+	</target>
+
+	<target name="push.docker.hub" depends="set.docker.tag.additional" description="Push the image to Docker hub">
+		<echo>Push the image '${docker.hub.repository}:${docker.container.tag.additional}' to Docker hub</echo>
+		<exec executable="docker" failonerror="true">
+			<arg value="push" />
+			<arg value="${docker.hub.repository}:${docker.container.tag.additional}" />
+		</exec>		
+	</target>	  
+	
+</project>
